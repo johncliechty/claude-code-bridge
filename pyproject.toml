@@ -4,17 +4,25 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "claude-code-bridge"
-version = "0.0.1"
-description = "MCP server that delegates host-side operations from sandboxed agents (Cowork, Cursor, etc.) to Claude Code on the user's machine."
+version = "0.2.0"
+description = "MCP server that lets sandboxed agents (Cowork, Cursor, etc.) run shell commands (PowerShell, cmd, bash) on the user's host machine with permission gating. v0.2.0: direct shell execution, no LLM intermediary."
 requires-python = ">=3.10"
 dependencies = [
-    "claude-agent-sdk>=0.1.81",
+    "mcp>=1.0.0",
     "python-dotenv>=1.0.0",
     "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
 ]
+
+[project.optional-dependencies]
+claude-code-delegation = ["claude-agent-sdk>=0.1.81"]
 
 [project.scripts]
 bridge-orchestrator = "bridge.orchestrator:main"
+bridge-mcp = "bridge.mcp_server:cli"
 
 [tool.setuptools.packages.find]
 include = ["bridge*"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"

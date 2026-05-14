@@ -1,0 +1,48 @@
+v0.3.0 — filesystem-IPC bridge for Cowork-to-host shell
+
+Lands the working bridge: Cowork sessions write JSON requests to ipc/inbox/<uuid>.json,
+the host daemon executes via bridge.shell.run_command, and writes results to
+ipc/outbox/<uuid>.json. Verified live with ~170-200ms round-trips.
+
+Major changes since v0.0.1:
+
+bridge/
+  + watcher.py — filesystem-IPC daemon. Watches ipc/inbox/*.json, executes,
+    writes ipc/outbox/<uuid>.json. In-memory dedup cache (10K-entry FIFO),
+    5-min outbox TTL, 10-min orphan inbox cleanup, 60s stale-tmp cleanup.
+  + shell.py — async run_command(command, cwd, shell, timeout, allow_destructive,
+    env). Cross-platform: PowerShell on Windows, bash on Mac/Linux.
+  + permissions.py — destructive-op blocklist (rm -rf, Remove-Item -Recurse -Force,
+    git push --force, Format-Volume, etc.) + admin-elevation detection.
+  + cowork_client.py — optional Python client lib for the IPC protocol.
+  + mcp_server.py — stdio MCP server (Phase 3). Functional but largely
+    superseded by the filesystem-IPC path in v0.3.0 because Cowork build
+    1.7196.0 didn't load user-installed MCP servers. (Update 2026-05-14:
+    Claude_Code_Bridge MCP tool is now visible in Cowork sessions —
+    possibly via a different mechanism. Worth confirming and updating
+    PHASE-4 doc.)
+  M orchestrator.py — legacy Phase-1 path using claude-agent-sdk. Kept
+    for archaeology; not in current control flow.
+
+install-watcher.ps1 — one-paste Windows installer. Creates IPC folders,
+  registers ClaudeCodeBridgeWatcher Scheduled Task (auto-start at logon,
+  auto-restart on crash), launches daemon, runs end-to-end self-test.
+
+IPC-PROTOCOL.md — protocol docs: request/response schemas, daemon lifecycle,
+  cross-platform install recipes, permission gate behavior.
+
+OVERNIGHT-NOTES.md, PHASE-4-ARCHITECTURE-OPTIONS.md — design-journey docs
+  capturing the v0.1.x -> v0.2.x -> v0.3.0 architecture pivots, including
+  why the MCPB Desktop Extension path didn't bridge into Cowork and why
+  the filesystem-IPC path sidesteps that gap entirely.
+
+run-overnight.ps1 — overnight build/test driver from the previous session.
+
+tests/ — test_permissions.py, test_shell.py, test_mcp.py.
+
+.gitignore — added runtime exclusions: logs/, ipc/inbox/*, ipc/outbox/*,
+  STATUS.json, *.lock. Kept ipc/{inbox,outbox}/.gitkeep so the daemon's
+  watched dirs exist at clone time.
+
+.claude-plugin/ — manifest + marketplace.json for eventual Cowork plugin
+  distribution.

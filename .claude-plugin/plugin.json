@@ -1,0 +1,21 @@
+{
+  "name": "claude-code-bridge",
+  "version": "0.2.0",
+  "description": "Run shell commands on the user's host machine (PowerShell, cmd, bash) from sandboxed agent runtimes like Cowork. Provides the run_command MCP tool: send a shell command string, get structured output (stdout, stderr, exit_code, duration, permission events) back. Destructive operations are gated by default (rm -rf, force-push, etc.); admin elevation is detected and flagged.",
+  "author": {
+    "name": "John Liechty",
+    "email": "john.liechty@gmail.com"
+  },
+  "license": "MIT",
+  "keywords": ["mcp", "shell", "powershell", "cmd", "bash", "host", "bridge", "cowork", "subprocess"],
+  "mcpServers": {
+    "claude-code-bridge": {
+      "command": "${CLAUDE_PLUGIN_ROOT}/.venv/Scripts/python.exe",
+      "args": ["-m", "bridge.mcp_server"],
+      "cwd": "${CLAUDE_PLUGIN_ROOT}",
+      "env": {
+        "PYTHONUNBUFFERED": "1"
+      }
+    }
+  }
+}

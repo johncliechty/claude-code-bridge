@@ -1,0 +1,21 @@
+{
+  "name": "claude-code-bridge",
+  "owner": {
+    "name": "John Liechty",
+    "url": "https://github.com/johncliechty"
+  },
+  "metadata": {
+    "description": "Standalone marketplace for the claude-code-bridge plugin: run shell commands on the user's host from sandboxed agent runtimes via the run_command MCP tool.",
+    "version": "0.2.0"
+  },
+  "plugins": [
+    {
+      "name": "claude-code-bridge",
+      "source": "./",
+      "description": "Run shell commands (PowerShell, cmd, bash) on the user's host machine from sandboxed agent runtimes like Cowork. Exposes the run_command MCP tool with structured output and permission gating (destructive-op blocklist, admin-elevation detection). Replaces the paste-once handshake of the use-claude-code skill with direct, deterministic shell execution.",
+      "version": "0.2.0",
+      "category": "infrastructure",
+      "keywords": ["mcp", "shell", "powershell", "cmd", "bash", "host", "bridge", "cowork", "subprocess"]
+    }
+  ]
+}

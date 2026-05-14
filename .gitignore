@@ -8,3 +8,14 @@ venv/
 build/
 dist/
 .pytest_cache/
+
+# Runtime state — produced by the daemon, never committed
+ipc/inbox/*
+ipc/outbox/*
+logs/
+STATUS.json
+*.lock
+
+# Keep the ipc/ subdirs visible to the daemon at clone time
+!ipc/inbox/.gitkeep
+!ipc/outbox/.gitkeep
