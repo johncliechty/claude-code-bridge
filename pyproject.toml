@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "claude-code-bridge"
+version = "0.0.1"
+description = "MCP server that delegates host-side operations from sandboxed agents (Cowork, Cursor, etc.) to Claude Code on the user's machine."
+requires-python = ">=3.10"
+dependencies = [
+    "claude-agent-sdk>=0.1.81",
+    "python-dotenv>=1.0.0",
+    "pytest>=8.0.0",
+]
+
+[project.scripts]
+bridge-orchestrator = "bridge.orchestrator:main"
+
+[tool.setuptools.packages.find]
+include = ["bridge*"]
