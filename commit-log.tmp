@@ -1,7 +1,8 @@
-﻿--- starting at 2026-05-14T12:55:09.1545250-06:00 ---
---- staging all ---
---- staged status ---
---- committing ---
---- commit exit code:  ---
---- log ---
---- remotes ---
+﻿start 2026-05-14T13:11:08.5238544-06:00
+--- status-before (exit=0) ---
+ M commit-log.tmp
+ M do-commit.ps1
+?? KNOWN-ISSUES.md
+?? __giterr.tmp
+?? __gitout.tmp
+--- stderr ---
