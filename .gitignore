@@ -16,6 +16,12 @@ logs/
 STATUS.json
 *.lock
 
+# Scratch files from one-shot scripts (do-commit.ps1 etc.)
+*.tmp
+__gitout.*
+__giterr.*
+commit-log.*
+
 # Keep the ipc/ subdirs visible to the daemon at clone time
 !ipc/inbox/.gitkeep
 !ipc/outbox/.gitkeep
