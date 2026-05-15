@@ -8,7 +8,15 @@ The calling agent sends a shell command string over MCP; the bridge runs it via 
 
 ## Quick start (first-time install on a Windows 11 PC)
 
-**Easiest:** download **[`Install-Claude-Code-Bridge.bat`](https://raw.githubusercontent.com/johncliechty/claude-code-bridge/master/Install-Claude-Code-Bridge.bat)** (right-click → "Save link as…"), double-click it, press Y to confirm. The installer auto-detects an existing Python (no reinstall if found), installs Python 3.13 via winget if missing, clones the repo, sets up the venv, registers the IPC daemon Scheduled Task, and self-tests end-to-end. No PowerShell commands to copy. See [`M0.md`](./M0.md) for the full walkthrough and troubleshooting.
+**Easiest:** download **[`Install-Claude-Code-Bridge.bat`](https://raw.githubusercontent.com/johncliechty/claude-code-bridge/main/Install-Claude-Code-Bridge.bat)** (right-click → "Save link as…"), double-click it, press Y to confirm. The installer auto-detects an existing Python (no reinstall if found), installs Python 3.13 via winget if missing, clones the repo, sets up the venv, registers the IPC daemon Scheduled Task, and self-tests end-to-end. No PowerShell commands to copy. See [`M0.md`](./M0.md) for the full walkthrough and troubleshooting.
+
+**One-liner alternative (PowerShell, no manual download):**
+
+```powershell
+powershell -ExecutionPolicy Bypass -Command "& ([scriptblock]::Create((iwr -useb 'https://raw.githubusercontent.com/johncliechty/claude-code-bridge/main/bootstrap.ps1').Content))"
+```
+
+Why `& ([scriptblock]::Create(...))` and not the more familiar `iex (iwr ...).Content`? `bootstrap.ps1` declares `[CmdletBinding()]` and `param(...)` at the top. Those constructs are legal only inside a script file or a scriptblock — `Invoke-Expression` evaluates its argument as an *expression*, where they're parse errors ("Unexpected attribute 'CmdletBinding'"). `[scriptblock]::Create()` parses the fetched text as a real scriptblock, so `param` + `CmdletBinding` work, and the `&` call operator inside the script behaves normally when it invokes tools from space-containing paths like `C:\Program Files\Git\cmd\git.exe`.
 
 **From PowerShell (two commands):**
 
