@@ -6,6 +6,19 @@ The calling agent sends a shell command string over MCP; the bridge runs it via 
 
 **Status:** v0.2.0, post-pivot. Verified working in Cowork sandbox; pending Cowork plugin-manifest wire-up for universal availability.
 
+## Quick start (first-time install on a Windows 11 PC)
+
+**Easiest:** download **[`Install-Claude-Code-Bridge.bat`](https://raw.githubusercontent.com/johncliechty/claude-code-bridge/master/Install-Claude-Code-Bridge.bat)** (right-click → "Save link as…"), double-click it, press Y to confirm. The installer auto-detects an existing Python (no reinstall if found), installs Python 3.13 via winget if missing, clones the repo, sets up the venv, registers the IPC daemon Scheduled Task, and self-tests end-to-end. No PowerShell commands to copy. See [`M0.md`](./M0.md) for the full walkthrough and troubleshooting.
+
+**From PowerShell (two commands):**
+
+```powershell
+git clone https://github.com/johncliechty/claude-code-bridge C:\dev\claude-code-bridge
+powershell -NoProfile -ExecutionPolicy Bypass -File C:\dev\claude-code-bridge\bootstrap.ps1
+```
+
+`bootstrap.ps1` is idempotent and handles Python detection / install, git detection / install, repo clone-or-pull, venv setup, and the Scheduled Task registration. It runs `install-watcher.ps1` at the end which self-tests the daemon round-trip.
+
 ## How it works
 
 The bridge exposes one MCP tool, `run_command`, with the following surface:
@@ -28,9 +41,9 @@ Two layers of safety, both implemented in `bridge/permissions.py` and applied to
 - **Destructive-op blocklist.** `rm -rf`, `Remove-Item -Recurse -Force`, `git push --force`, `git reset --hard`, `git branch -D`, `Format-Volume`, `format <drive>:`, `shutdown`, `Restart-Computer`, `regedit`, `diskpart`, writes to `~/.ssh`. Blocked by default; callers can pass `allow_destructive=true` to bypass with intent.
 - **Admin-elevation detection.** `Start-Process -Verb RunAs`, `sudo`, `runas`, `pwsh -Verb RunAs`. Surfaced as a `permission_events` entry but not blocked — the OS handles the actual elevation prompt.
 
-## Install
+## Manual install (for developers)
 
-From the repo root:
+If you'd rather not use `bootstrap.ps1`, from the repo root:
 
 ```powershell
 python -m venv .venv
@@ -43,6 +56,14 @@ This installs `bridge-mcp` (the MCP server script) and `bridge-orchestrator` (th
 ```powershell
 pip install -e ".[claude-code-delegation]"
 ```
+
+To register the IPC daemon Scheduled Task after the package install:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File install-watcher.ps1
+```
+
+`install-watcher.ps1` resolves Python from known install paths (or via `py -3` / PATH) and offers to install via winget if nothing is found. Pass `-PythonPath <abs-path>` if you want to skip discovery and force a specific Python.
 
 ## Usage
 
@@ -68,6 +89,7 @@ Rationale: the sandboxed agent already has its own LLM (Cowork's agent); routing
 
 ## Design docs
 
+- `M0.md` — novice-friendly install walkthrough.
 - `OVERNIGHT-NOTES.md` — handoff notes between sessions.
 - `PHASE-4-ARCHITECTURE-OPTIONS.md` — open question on Cowork plugin manifest schema.
 - `C:\dev\Teaching\USE-CLAUDE-CODE-TOOL-PLAN-2026-05-13.md` — original build plan (predates the v0.2.0 pivot; treat as historical context).

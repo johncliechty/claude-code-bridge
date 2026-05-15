@@ -3,11 +3,21 @@
 # Run from a PowerShell window:
 #   powershell -ExecutionPolicy Bypass -File C:\dev\claude-code-bridge\install-watcher.ps1
 #
+# Or pass an explicit Python path (used by bootstrap.ps1):
+#   powershell -ExecutionPolicy Bypass -File install-watcher.ps1 -PythonPath C:\Python313\python.exe
+#
 # Safe to re-run. Idempotent. ASCII-only (no Unicode pitfalls).
+# Compatible with PowerShell 5.1 Desktop (the default on Windows 10/11) and PS 7+.
+
+#Requires -Version 5.1
+[CmdletBinding()]
+param(
+    [string]$PythonPath = '',
+    [string]$BridgeRoot = 'C:\dev\claude-code-bridge'
+)
 
 $ErrorActionPreference = 'Continue'
-$bridgeRoot = 'C:\dev\claude-code-bridge'
-$python     = 'C:\Users\john\AppData\Local\Programs\Python\Python313\python.exe'
+$bridgeRoot = $BridgeRoot
 $script     = "$bridgeRoot\bridge\watcher.py"
 $taskName   = 'ClaudeCodeBridgeWatcher'
 $ipcInbox   = "$bridgeRoot\ipc\inbox"
@@ -19,18 +29,121 @@ function Section($msg) { Write-Host ""; Write-Host "=== $msg ===" -ForegroundCol
 function OK($msg)      { Write-Host "  PASS: $msg" -ForegroundColor Green }
 function Warn($msg)    { Write-Host "  WARN: $msg" -ForegroundColor Yellow }
 function Fail($msg)    { Write-Host "  FAIL: $msg" -ForegroundColor Red }
+function Info($msg)    { Write-Host "  INFO: $msg" -ForegroundColor Gray }
+
+# --- Python resolver -----------------------------------------------------
+# Strategy: search known Python install locations and return the first existing
+# one. We don't probe with `--version` because (a) the known paths are well-
+# defined Python install locations - if python.exe lives there, it's Python -
+# and (b) `& $exe --version` doesn't reliably capture stdout in all subprocess
+# contexts (the Cowork-host bridge service shell is a real case in point).
+# Filters out the Microsoft Store stub which is a launcher, not a Python.
+function Resolve-Python {
+    $up = $env:USERPROFILE
+    $known = @(
+        "$up\AppData\Local\Programs\Python\Python313\python.exe",
+        "$up\AppData\Local\Programs\Python\Python312\python.exe",
+        "$up\AppData\Local\Programs\Python\Python311\python.exe",
+        "$up\AppData\Local\Programs\Python\Python310\python.exe",
+        "C:\Program Files\Python313\python.exe",
+        "C:\Program Files\Python312\python.exe",
+        "C:\Program Files\Python311\python.exe",
+        "C:\Program Files\Python310\python.exe",
+        "C:\Python313\python.exe",
+        "C:\Python312\python.exe",
+        "C:\Python311\python.exe",
+        "C:\Python310\python.exe"
+    )
+    foreach ($p in $known) {
+        if (Test-Path $p) { return $p }
+    }
+    # PATH-based fallback (excluding the Microsoft Store stub)
+    $pathHit = Get-Command 'python.exe' -ErrorAction SilentlyContinue
+    if ($pathHit -and ($pathHit.Source -notlike '*\WindowsApps\*') -and (Test-Path $pathHit.Source)) {
+        return $pathHit.Source
+    }
+    # Last resort: ask the py launcher (with Start-Process so stdout is captured reliably)
+    $pyLauncher = Get-Command 'py.exe' -ErrorAction SilentlyContinue
+    if ($pyLauncher) {
+        $tmpOut = [System.IO.Path]::GetTempFileName()
+        try {
+            $proc = Start-Process -FilePath $pyLauncher.Source `
+                -ArgumentList '-3','-c','import sys; print(sys.executable)' `
+                -NoNewWindow -Wait -PassThru `
+                -RedirectStandardOutput $tmpOut
+            if ($proc.ExitCode -eq 0) {
+                $resolved = (Get-Content $tmpOut -Raw).Trim()
+                if ($resolved -and (Test-Path $resolved)) { return $resolved }
+            }
+        } catch { } finally {
+            Remove-Item $tmpOut -ErrorAction SilentlyContinue
+        }
+    }
+    return $null
+}
+
+function Install-PythonViaWinget {
+    $winget = Get-Command 'winget.exe' -ErrorAction SilentlyContinue
+    if (-not $winget) {
+        Fail "winget (Windows Package Manager) is not available."
+        Info "Install Python 3.13 manually from https://www.python.org/downloads/ and re-run this script."
+        return $false
+    }
+    Write-Host ""
+    Write-Host "  Installing Python 3.13 via winget (user scope, no admin needed)..." -ForegroundColor Cyan
+    Write-Host "  This usually takes ~30 seconds." -ForegroundColor Gray
+    & $winget.Source install --id Python.Python.3.13 `
+        --silent `
+        --disable-interactivity `
+        --accept-package-agreements `
+        --accept-source-agreements `
+        --scope user
+    if ($LASTEXITCODE -ne 0) {
+        Fail "winget install exited with code $LASTEXITCODE."
+        Info "Try installing manually from https://www.python.org/downloads/ and re-run."
+        return $false
+    }
+    OK "Python install finished. Re-resolving..."
+    return $true
+}
 
 # --- Step 1: prerequisites and folders ---
 Section 'Step 1: prerequisites'
 
-if (-not (Test-Path $python)) {
-    Fail "Python not found at $python. Edit the script to point at your install."
-    exit 1
+# Python: caller-provided > resolver > winget-install > resolver
+if ($PythonPath -and (Test-Path $PythonPath)) {
+    $python = $PythonPath
+    OK "Python at $python (provided by caller)"
+} else {
+    $python = Resolve-Python
+    if (-not $python) {
+        Warn "Python 3.10+ not found on this machine."
+        # Headless mode: if this script was invoked with no console (e.g. by a
+        # parent installer that already handled the prompt), do the install
+        # automatically. Otherwise prompt.
+        $autoInstall = $true
+        if ([Environment]::UserInteractive -and $Host.UI.RawUI) {
+            $resp = Read-Host "  Install Python 3.13 via winget now? [Y/n]"
+            $autoInstall = ($resp -eq '' -or $resp -match '^[Yy]')
+        }
+        if (-not $autoInstall) {
+            Fail "Cannot proceed without Python."
+            exit 1
+        }
+        if (-not (Install-PythonViaWinget)) { exit 1 }
+        $python = Resolve-Python
+        if (-not $python) {
+            Fail "Python was installed but is not yet resolvable on this PATH."
+            Info "Open a new PowerShell window and re-run this script. (PATH propagates per-process; the new shell will see the install.)"
+            exit 1
+        }
+    }
+    OK "Python at $python"
 }
-OK "Python at $python"
 
 if (-not (Test-Path $script)) {
     Fail "Watcher script not found at $script."
+    Info "Make sure the repo was cloned to $bridgeRoot. See M0.md for the one-step installer."
     exit 1
 }
 OK "Watcher script at $script"
