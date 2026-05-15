@@ -3,23 +3,43 @@
 # This is the script the user's double-click experience runs. The flow:
 #   1. Resolve Python (auto-install via winget if missing).
 #   2. Resolve git (auto-install via winget if missing).
-#   3. Clone (or update) https://github.com/johncliechty/claude-code-bridge to -InstallPath.
+#   3. Clone (or update) https://github.com/johncliechty/claude-code-bridge to $InstallPath.
 #   4. Create a venv + pip install -e . (so the .claude-plugin path works).
 #   5. Invoke install-watcher.ps1 to register the IPC daemon Scheduled Task and self-test.
 #
-# Compatible with PowerShell 5.1 Desktop. Idempotent. No admin required when winget
+# Compatible with PowerShell 5.0+ Desktop. Idempotent. No admin required when winget
 # uses --scope user. ASCII-only.
+#
+# INVOCATION FORMS supported (all four work -- that's the point of the wrapper below):
+#   1. Direct file run:    powershell -ExecutionPolicy Bypass -File bootstrap.ps1
+#   2. iex one-liner:      iex (iwr -useb 'https://.../bootstrap.ps1').Content
+#   3. scriptblock form:   & ([scriptblock]::Create((iwr -useb '...').Content))
+#   4. Via Install-Claude-Code-Bridge.bat (which uses form 3 internally).
+#
+# Forms 2-3 require the entire executable body to live inside a scriptblock
+# (the `& { ... }` wrapper below), because [CmdletBinding()]+param() at the
+# top-level of a script are illegal in expression context (iex) but legal
+# inside a scriptblock.
+#
+# Optional overrides -- set these as env vars BEFORE running the installer:
+#   $env:CCB_INSTALL_PATH         where to clone   (default: C:\dev\claude-code-bridge)
+#   $env:CCB_REPO_URL             which repo URL   (default: johncliechty/claude-code-bridge)
+#   $env:CCB_SKIP_VENV       = '1'  skip the .venv + pip install (IPC daemon only)
+#   $env:CCB_NON_INTERACTIVE = '1'  never prompt; auto-confirm any installs
 
-#Requires -Version 5.1
-[CmdletBinding()]
-param(
-    [string]$InstallPath = 'C:\dev\claude-code-bridge',
-    [string]$RepoUrl     = 'https://github.com/johncliechty/claude-code-bridge',
-    [switch]$SkipVenv,        # skip the .venv + pip install (only IPC daemon is needed)
-    [switch]$NonInteractive   # never prompt; auto-confirm installs
-)
+& {
+    if ($PSVersionTable.PSVersion.Major -lt 5) {
+        Write-Host "PowerShell 5.0+ required (you have $($PSVersionTable.PSVersion))." -ForegroundColor Red
+        exit 1
+    }
 
-$ErrorActionPreference = 'Stop'
+    $ErrorActionPreference = 'Stop'
+
+    # Overrides via env vars (previously script-level params).
+    $InstallPath    = if ($env:CCB_INSTALL_PATH)     { $env:CCB_INSTALL_PATH }     else { 'C:\dev\claude-code-bridge' }
+    $RepoUrl        = if ($env:CCB_REPO_URL)         { $env:CCB_REPO_URL }         else { 'https://github.com/johncliechty/claude-code-bridge' }
+    $SkipVenv       = [bool]$env:CCB_SKIP_VENV
+    $NonInteractive = [bool]$env:CCB_NON_INTERACTIVE
 
 function Banner {
     Write-Host ""
@@ -316,3 +336,5 @@ Write-Host "  - In a Cowork chat, the run_command MCP tool can now execute shell
 Write-Host "    commands on this PC (with destructive-op gating)." -ForegroundColor Gray
 Write-Host "  - See $InstallPath\M0.md for verification steps and troubleshooting." -ForegroundColor Gray
 Write-Host ""
+
+} # end of `& { ... }` iex-tolerance wrapper -- DO NOT add code after this brace.

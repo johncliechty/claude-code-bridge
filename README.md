@@ -12,11 +12,29 @@ The calling agent sends a shell command string over MCP; the bridge runs it via 
 
 **One-liner alternative (PowerShell, no manual download):**
 
+In a fresh PowerShell window (Win+X → Terminal works), paste:
+
 ```powershell
-powershell -ExecutionPolicy Bypass -Command "& ([scriptblock]::Create((iwr -useb 'https://raw.githubusercontent.com/johncliechty/claude-code-bridge/main/bootstrap.ps1').Content))"
+iex (iwr -useb 'https://raw.githubusercontent.com/johncliechty/claude-code-bridge/main/bootstrap.ps1').Content
 ```
 
-Why `& ([scriptblock]::Create(...))` and not the more familiar `iex (iwr ...).Content`? `bootstrap.ps1` declares `[CmdletBinding()]` and `param(...)` at the top. Those constructs are legal only inside a script file or a scriptblock — `Invoke-Expression` evaluates its argument as an *expression*, where they're parse errors ("Unexpected attribute 'CmdletBinding'"). `[scriptblock]::Create()` parses the fetched text as a real scriptblock, so `param` + `CmdletBinding` work, and the `&` call operator inside the script behaves normally when it invokes tools from space-containing paths like `C:\Program Files\Git\cmd\git.exe`.
+If you're already inside an existing PowerShell session, that's the line to paste — directly, *not* wrapped in `powershell -Command "..."` (the outer shell strips the quotes and breaks the call).
+
+Two equivalent fallback forms if the simple one above ever fails (it shouldn't):
+
+```powershell
+# scriptblock form -- works in any context, including wrapped in another powershell -Command
+& ([scriptblock]::Create((iwr -useb 'https://raw.githubusercontent.com/johncliechty/claude-code-bridge/main/bootstrap.ps1').Content))
+```
+
+```powershell
+# Download-then-run -- easiest to debug if something's wrong, easiest to pass overrides
+$tmp = "$env:TEMP\ccb-bootstrap.ps1"
+iwr -useb 'https://raw.githubusercontent.com/johncliechty/claude-code-bridge/main/bootstrap.ps1' -OutFile $tmp
+powershell -ExecutionPolicy Bypass -File $tmp
+```
+
+`bootstrap.ps1` wraps its body in `& { ... }`, which means it parses cleanly under all three invocation styles (`iex`, `[scriptblock]::Create`, and `-File`). Optional overrides (clone path, repo URL, skip-venv, non-interactive) are set via env vars before running — `$env:CCB_INSTALL_PATH`, `$env:CCB_REPO_URL`, `$env:CCB_SKIP_VENV`, `$env:CCB_NON_INTERACTIVE`. The script's header comment documents these.
 
 **From PowerShell (two commands):**
 
