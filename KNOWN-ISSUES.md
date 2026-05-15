@@ -2,23 +2,31 @@
 
 Logged 2026-05-14 from a real session that hit each issue. Listed in order of severity / how often they bite.
 
-## 1. Bridge can't invoke git binaries (high severity for any git workflow)
+## 1. Bridge can't capture stdout from script-spawned binaries (medium — bigger bark than bite)
 
-**Symptom.** Running `git --version` (or any git operation) via `mcp__Claude_Code_Bridge__run_command` produces exit code 0 with empty stdout. Routing through PowerShell's pipeline triggers *"Cannot run a document in the middle of a pipeline: C:\Program Files\Git\bin\git.exe."* Routing through `cmd` shell hangs until timeout.
+**Symptom (first half).** Running `git --version` (or any external-binary operation) inline via `mcp__Claude_Code_Bridge__run_command` produces exit code 0 with empty stdout. Routing through PowerShell's pipeline triggers *"Cannot run a document in the middle of a pipeline: C:\Program Files\Git\bin\git.exe."* Routing through `cmd` shell hangs until timeout.
 
-**Root cause (working hypothesis).** The bridge daemon spawns child shells in a way that's hostile to git's stdout/stderr handling. Git on Windows opens console handles that work fine under an interactive shell but fail under the daemon's non-interactive child-process model. PowerShell's "document in pipeline" error is a downstream symptom — it kicks in when PowerShell tries to invoke a native binary it can't pipe.
+**Refined picture after 2026-05-14 retesting.** The bridge **can** run host-side `.ps1` scripts that invoke external binaries via `Start-Process -FilePath $exe -ArgumentList ... -RedirectStandardOutput $out -RedirectStandardError $err`. The binary runs, exit codes are correct, side effects happen. The bridge just **silently drops the stdout** of the spawned PowerShell process — `Write-Output` from inside the script never makes it back to the MCP response. So the bridge IS capable of running multi-step workflows; what it can't do is *report* their output back inline.
 
-**Workaround.** For git operations, run a host-side PowerShell script (a `.ps1` file launched via `powershell.exe -File`) and capture output to a log file using `Start-Process -RedirectStandardOutput`. Even that fails inside the bridge — but if the user runs the same script from a real PowerShell terminal, it works. So: write the script via the bridge; tell the user to run it once. One paste, not ten typed commands.
+**Workaround that works.** Write a `.ps1` to disk via the bridge that:
 
-**Status:** unresolved. Pending diagnosis of `bridge/watcher.py`'s `bridge.shell.run_command` to see whether it spawns with a TTY-attached stdin/stdout pair or not. If not, attaching a fake TTY (via `ConPTY` on Windows) may fix it.
+- Invokes binaries via `Start-Process` with `-RedirectStandardOutput` / `-RedirectStandardError` pointing at files in `$env:TEMP` (not the working dir — those get tracked by `git add -A`).
+- Appends a structured transcript to a `.log` file in `$env:TEMP`.
+- Self-deletes on success.
 
-## 2. PATH inherited by the bridge's PowerShell is incomplete (medium)
+Then invoke the script via `mcp__Claude_Code_Bridge__run_command` with `powershell.exe -NoProfile -ExecutionPolicy Bypass -File <script>`. The bridge won't show you the output, but the work happens. Read the transcript file afterward via a second `mcp__Claude_Code_Bridge__run_command` (or via the Read tool if the file is in a mounted folder).
+
+**Root cause (working hypothesis).** The bridge daemon's stdout capture for spawned child processes uses pipes that either close prematurely or aren't drained when the child terminates quickly. The "document in pipeline" PowerShell error from inline invocations is the same root cause showing through a different surface — PowerShell tries to set up a pipeline that the daemon's child-process model doesn't support.
+
+**Status:** unresolved at the daemon level, but the file-redirect workaround is good enough that workflows from Cowork sessions complete end-to-end as long as the script is structured to log to disk.
+
+## 2. PATH inherited by the bridge's PowerShell is incomplete in practice (medium)
 
 **Symptom.** `git`, `gh`, and other commonly-installed binaries are on the System PATH but `git`/`gh`/etc. are reported as "not recognized as the name of a cmdlet, function, script file, or operable program" when invoked plainly via `mcp__Claude_Code_Bridge__run_command` with `shell: "powershell"`.
 
 **Note.** `$env:Path -split ';'` inside the same invocation *does* show `C:\Program Files\Git\cmd` is present. So the PATH variable looks right; PowerShell's command-resolution lookup along that PATH is failing. This is correlated with issue #1 above — it's likely the same root cause (the daemon's child-process model breaks something about how Windows resolves and invokes external commands).
 
-**Workaround.** Use the full path with the call operator: `& 'C:\Program Files\Git\bin\git.exe' --version`. The invocation parses OK (no "not recognized" error) but stdout still gets lost — issue #1 again.
+**Workaround.** Use the full path with the call operator: `& 'C:\Program Files\Git\bin\git.exe' --version`. The invocation parses OK (no "not recognized" error) but stdout still gets lost — issue #1 again. For multi-binary workflows where one binary spawns another, the spawned binary may ALSO fail to find its dependencies — see issue #6.
 
 **Status:** correlated with #1; probably same fix.
 
@@ -36,7 +44,7 @@ Logged 2026-05-14 from a real session that hit each issue. Listed in order of se
 
 **Symptom.** A Cowork session writing a request and reading the response can't subsequently `os.unlink()` the outbox file. PermissionError / Operation not permitted across the host-sandbox mount.
 
-**Root cause.** The daemon writes the response file with host-user permissions; the sandbox is a different user (`festive-trusting-carson`) and lacks delete permissions on host-owned files.
+**Root cause.** The daemon writes the response file with host-user permissions; the sandbox is a different user (`festive-trusting-carson` or similar) and lacks delete permissions on host-owned files.
 
 **Workaround.** None needed for correctness — the daemon auto-cleans outbox files after 5 minutes. Just leaves stale files for that window.
 
@@ -48,16 +56,28 @@ Logged 2026-05-14 from a real session that hit each issue. Listed in order of se
 
 **Root cause.** The Linux sandbox's mount of the Windows host folder caches directory entries; deletes from the host side don't always invalidate the sandbox's cached entries promptly. This shows up especially for short-lived files like `.git/*.lock`.
 
-**Workaround.** None reliable. The lock survives `git reset` style operations from the sandbox because git can't unlink across this cache mismatch. Forcing a delete from the host side (via this bridge) clears it from the host but not from the sandbox cache.
+**Workaround.** None reliable. The lock survives `git reset` style operations from the sandbox because git can't unlink across this cache mismatch.
 
 **Status:** open. Probably out of scope for the bridge itself; this is a Cowork mount-layer concern. But it makes git workflows from the sandbox unreliable enough that users should be told to run their `.git`-touching commands host-side, not sandbox-side.
+
+## 6. `gh repo create` via Start-Process can't find a valid git repo (medium — surfaced 2026-05-14 PM)
+
+**Symptom.** `gh repo create <name> --source=C:\dev\claude-code-bridge --push --public` invoked via `Start-Process` from a bridge-launched PowerShell script fails with *"C:\dev\claude-code-bridge is not a git repository."* The directory IS a valid git repo (`git status` from the same script seconds earlier works fine and commits land). Tried: `Set-Location $root`, `[System.IO.Directory]::SetCurrentDirectory($root)`, `-WorkingDirectory $root` on Start-Process, prepending Git's cmd dir to `$env:Path`, passing `--source=$root` explicitly. None resolved it.
+
+**Root cause (working hypothesis).** gh runs `git rev-parse --is-inside-work-tree` internally to validate the source directory. That subprocess inherits an environment from gh which in turn inherited it from Start-Process which was spawned by the bridge daemon. Somewhere in that chain, either git isn't findable for the grandchild process (despite PATH manipulation in the script's process) or the CWD doesn't actually take effect for gh's child, and gh's verification returns false.
+
+**Additional issue uncovered.** `Start-Process -ArgumentList @('--description','some long text with spaces')` quotes the elements inconsistently on .NET in older PowerShell; gh sees the description text word-split into ~17 separate args and errors with *"accepts at most 1 arg(s), received 25"*. Even `--description=long text` as a single array element gets split. This is a long-standing PowerShell `Start-Process` quirk; the typical fix is to pre-build the command line string yourself rather than letting Start-Process construct it from an array.
+
+**Workaround.** Run `gh repo create` from a real interactive PowerShell or Windows Terminal, not from a bridge-spawned script. The local commits land via the bridge fine (see #1's workaround); just the GitHub-publishing step needs to be manual until the gh-via-bridge gap is solved.
+
+**Status:** unresolved. Probably solvable by writing a `cmd /c` invocation with explicit quoting (sidestepping both PowerShell's Start-Process arg-quoting and gh's apparent cwd-inheritance problem), but that hits issue #3.
 
 ---
 
 ## Summary of practical impact
 
-For routine bridge usage — `echo`, file operations, `Test-Path`, `Get-ChildItem`, `Remove-Item`, simple cmdlets, `Set-Location`, registry reads, etc. — the bridge is solid (~170-200ms round-trips, consistent across days). Issues #1-#3 above bite specifically for external binary invocation and file-path-with-spaces cases. Issue #4 is cosmetic. Issue #5 is a Cowork mount concern, not a bridge concern.
+For routine bridge usage — `echo`, file operations, `Test-Path`, `Get-ChildItem`, `Remove-Item`, simple cmdlets, `Set-Location`, registry reads, etc. — the bridge is solid (~170-200ms round-trips, consistent across days). Issues #1-#3 bite for external binary invocation and file-path-with-spaces cases. Issue #4 is cosmetic. Issue #5 is a Cowork mount concern. Issue #6 specifically blocks the `gh repo create` flow.
 
-Until #1 is fixed, git workflows that need to happen on the host should be packaged as `.ps1` scripts written to disk by the bridge, then executed manually by the user in a real PowerShell session. That's one paste, not ten typed commands — still a net win versus pre-bridge, but not the seamless host-shell experience the bridge aspires to.
+For git workflows on the host: write a `.ps1` that uses `Start-Process` with `RedirectStandardOutput`, log to `$env:TEMP`, and the work lands. For `gh` workflows specifically: do it from a real terminal until issue #6 is solved.
 
-A future Phase 5 of the bridge that attaches a `ConPTY` to the spawned child process is likely the right fix for #1, #2, and #3 together — they all smell like the same TTY/console-handle root cause.
+A future Phase 5 of the bridge that attaches a `ConPTY` to the spawned child process is likely the right fix for #1-#3 together — they all smell like the same TTY/console-handle root cause. Issue #6 may require additional work around environment inheritance for grandchild processes (gh's git subprocesses).
