@@ -6,9 +6,9 @@ The calling agent sends a shell command string over MCP; the bridge runs it via 
 
 **Status:** v0.2.0, post-pivot. Verified working in Cowork sandbox; pending Cowork plugin-manifest wire-up for universal availability.
 
-## Quick start (first-time install on a Windows 11 PC)
+## Quick start — the one-paste install on every platform
 
-**The one-paste install — the recommended path for everyone, including absolute beginners:**
+### Windows 11 / 10
 
 1. Press **Windows key + X**, then **T**. A Terminal window opens (it's PowerShell).
 2. Paste this single line and press Enter:
@@ -17,9 +17,31 @@ The calling agent sends a shell command string over MCP; the bridge runs it via 
 iex (iwr -useb 'https://raw.githubusercontent.com/johncliechty/claude-code-bridge/main/bootstrap.ps1').Content
 ```
 
-3. Wait until you see `BOOTSTRAP COMPLETE` (1–3 minutes — installs Python via winget if missing, clones the repo, sets up the venv, registers the Scheduled Task, and self-tests the IPC round-trip).
+3. Wait until you see `BOOTSTRAP COMPLETE` (1–3 minutes — installs Python via winget if missing, installs git if missing, clones the repo, sets up the venv, registers the Scheduled Task, and self-tests the IPC round-trip).
 
-That's it. **No `powershell -Command` wrapper, no `-ExecutionPolicy Bypass` flag, no `.bat` download.** The wrapped forms below trip Smart App Control on Win11 22H2+ with the unhelpful error `Program 'powershell.exe' failed to run: Access is denied`. The bare-iex form runs *inside* your existing PowerShell session — no child process spawn, no SAC gate — and the iex-tolerant `bootstrap.ps1` (which wraps its body in `& { ... }`) parses cleanly in that context.
+**No `powershell -Command` wrapper, no `-ExecutionPolicy Bypass` flag, no `.bat` download.** The wrapped forms (listed under "Alternative install paths" below) trip Smart App Control on Win11 22H2+ with the unhelpful error `Program 'powershell.exe' failed to run: Access is denied`. The bare-iex form runs *inside* your existing PowerShell session — no child process spawn, no SAC gate — and the iex-tolerant `bootstrap.ps1` (which wraps its body in `& { ... }`) parses cleanly in that context.
+
+### macOS
+
+1. Open Terminal (Cmd+Space → type "Terminal" → Enter).
+2. Paste this single line and press Return:
+
+```
+curl -fsSL https://raw.githubusercontent.com/johncliechty/claude-code-bridge/main/install-watcher-macos.sh | bash
+```
+
+3. Wait until you see `Round-trip succeeded`. The installer self-clones the bridge repo to `~/claude-code-bridge`, registers a LaunchAgent (`com.claudecodebridge.watcher`), starts the daemon, and self-tests the IPC round-trip. Requires `git` and `python3` to be on PATH (Homebrew or Xcode Command Line Tools); if either is missing, the installer prints the exact `brew install` / `xcode-select --install` line you need.
+
+### Linux
+
+1. Open your terminal.
+2. Paste this single line and press Enter:
+
+```
+curl -fsSL https://raw.githubusercontent.com/johncliechty/claude-code-bridge/main/install-watcher-linux.sh | bash
+```
+
+3. Wait until you see `Round-trip succeeded`. The installer self-clones the bridge repo to `~/claude-code-bridge`, registers a `systemd --user` unit (`claude-code-bridge.service`), starts the daemon, and self-tests the IPC round-trip. Requires `git` and `python3` to be on PATH; if either is missing, the installer prints the exact `apt install` / `dnf install` / `pacman -S` line you need. Auto-start at login may require `sudo loginctl enable-linger $USER`.
 
 ### Alternative install paths (advanced users only — these can fail on locked-down machines)
 

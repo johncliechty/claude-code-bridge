@@ -28,6 +28,39 @@ ok()      { printf "  ${GREEN}PASS:${RESET} %s\n" "$1"; }
 warn()    { printf "  ${YELLOW}WARN:${RESET} %s\n" "$1"; }
 fail()    { printf "  ${RED}FAIL:${RESET} %s\n" "$1"; }
 
+# --- Step 0: ensure git, then ensure the bridge repo is cloned -----------
+# This block makes the script work as a one-paste install:
+#   curl -fsSL https://raw.githubusercontent.com/johncliechty/claude-code-bridge/main/install-watcher-linux.sh | bash
+# When the script reaches Step 1, $BRIDGE_ROOT exists and contains the repo.
+section 'Step 0: ensure git + clone bridge repo if missing'
+
+if ! command -v git >/dev/null 2>&1; then
+    fail 'git not found on PATH. Install via your distro:'
+    fail '    sudo apt install git        # Debian/Ubuntu'
+    fail '    sudo dnf install git        # Fedora/RHEL'
+    fail '    sudo pacman -S git          # Arch'
+    exit 1
+fi
+ok "git available ($(git --version 2>&1))"
+
+if [[ ! -d "$BRIDGE_ROOT/.git" ]]; then
+    mkdir -p "$(dirname "$BRIDGE_ROOT")"
+    section "Cloning https://github.com/johncliechty/claude-code-bridge -> $BRIDGE_ROOT"
+    if ! git clone https://github.com/johncliechty/claude-code-bridge "$BRIDGE_ROOT"; then
+        fail 'git clone failed. Check your network connection and try again.'
+        exit 1
+    fi
+    ok 'Repo cloned.'
+else
+    ok "Repo already present at $BRIDGE_ROOT."
+    if git -C "$BRIDGE_ROOT" fetch --quiet origin 2>/dev/null && \
+       git -C "$BRIDGE_ROOT" pull --ff-only --quiet 2>/dev/null; then
+        ok 'Pulled latest from origin.'
+    else
+        warn 'Could not fast-forward; continuing with existing checkout.'
+    fi
+fi
+
 # --- Step 1: prerequisites ---
 section 'Step 1: prerequisites'
 
