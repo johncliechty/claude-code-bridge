@@ -10,11 +10,10 @@
 # Compatible with PowerShell 5.0+ Desktop. Idempotent. No admin required when winget
 # uses --scope user. ASCII-only.
 #
-# INVOCATION FORMS supported (all four work -- that's the point of the wrapper below):
+# INVOCATION FORMS supported (all three work -- that's the point of the wrapper below):
 #   1. Direct file run:    powershell -ExecutionPolicy Bypass -File bootstrap.ps1
-#   2. iex one-liner:      iex (iwr -useb 'https://.../bootstrap.ps1').Content
+#   2. iex one-liner:      iex (iwr -useb 'https://.../bootstrap.ps1').Content    <-- recommended
 #   3. scriptblock form:   & ([scriptblock]::Create((iwr -useb '...').Content))
-#   4. Via Install-Claude-Code-Bridge.bat (which uses form 3 internally).
 #
 # Forms 2-3 require the entire executable body to live inside a scriptblock
 # (the `& { ... }` wrapper below), because [CmdletBinding()]+param() at the

@@ -94,7 +94,7 @@ The error fires at `CreateProcess` time — *before* `bootstrap.ps1` is even fet
 
 **Root cause (working hypothesis).** Microsoft Defender Smart App Control (default-on for new Win11 22H2+ installs) inspects child-process spawns from PowerShell and refuses unsigned `powershell.exe -ExecutionPolicy Bypass -Command "iex ..."` patterns at `CreateProcess` time — that command line is a textbook SAC-flagged "download-and-execute remote script" pattern. The same pattern also trips some corporate AppLocker policies and some third-party EDR products with PowerShell self-elevation rules.
 
-`Install-Claude-Code-Bridge.bat` uses the same wrapped pattern internally (`powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "..."` against the fetched script), so it fails on the same machines with the same error.
+**`Install-Claude-Code-Bridge.bat` has been removed from the repo** (commit forthcoming with this KNOWN-ISSUES.md update). It used the same wrapped pattern internally (`powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "..."` against the fetched script) and failed on the same SAC-enabled Win11 22H2+ machines with the same `Access is denied` error. Keeping it next to the working bare-iex path was net harmful — users were finding the `.bat` first (it sounded simpler), running it, hitting the silent failure, and not knowing to look at the README. Removing the broken alternative collapses the choice to one working path.
 
 **Workaround.** Use the **bare-iex form**, run inside the user's existing PowerShell session, with no `powershell -Command` wrapper at all:
 
