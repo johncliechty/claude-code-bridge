@@ -8,42 +8,44 @@ The calling agent sends a shell command string over MCP; the bridge runs it via 
 
 ## Quick start (first-time install on a Windows 11 PC)
 
-**Easiest:** download **[`Install-Claude-Code-Bridge.bat`](https://raw.githubusercontent.com/johncliechty/claude-code-bridge/main/Install-Claude-Code-Bridge.bat)** (right-click → "Save link as…"), double-click it, press Y to confirm. The installer auto-detects an existing Python (no reinstall if found), installs Python 3.13 via winget if missing, clones the repo, sets up the venv, registers the IPC daemon Scheduled Task, and self-tests end-to-end. No PowerShell commands to copy. See [`M0.md`](./M0.md) for the full walkthrough and troubleshooting.
+**The one-paste install — the recommended path for everyone, including absolute beginners:**
 
-**One-liner alternative (PowerShell, no manual download):**
+1. Press **Windows key + X**, then **T**. A Terminal window opens (it's PowerShell).
+2. Paste this single line and press Enter:
 
-In a fresh PowerShell window (Win+X → Terminal works), paste:
-
-```powershell
+```
 iex (iwr -useb 'https://raw.githubusercontent.com/johncliechty/claude-code-bridge/main/bootstrap.ps1').Content
 ```
 
-If you're already inside an existing PowerShell session, that's the line to paste — directly, *not* wrapped in `powershell -Command "..."` (the outer shell strips the quotes and breaks the call).
+3. Wait until you see `BOOTSTRAP COMPLETE` (1–3 minutes — installs Python via winget if missing, clones the repo, sets up the venv, registers the Scheduled Task, and self-tests the IPC round-trip).
 
-Two equivalent fallback forms if the simple one above ever fails (it shouldn't):
+That's it. **No `powershell -Command` wrapper, no `-ExecutionPolicy Bypass` flag, no `.bat` download.** The wrapped forms below trip Smart App Control on Win11 22H2+ with the unhelpful error `Program 'powershell.exe' failed to run: Access is denied`. The bare-iex form runs *inside* your existing PowerShell session — no child process spawn, no SAC gate — and the iex-tolerant `bootstrap.ps1` (which wraps its body in `& { ... }`) parses cleanly in that context.
+
+### Alternative install paths (advanced users only — these can fail on locked-down machines)
+
+The forms below all do the same thing; they're documented for completeness, not as fallbacks for the one-paste flow to fail to. If the bare-iex form above doesn't work on your machine, please open an issue with the exact error — that's a signal, not a "try the next one in the list."
 
 ```powershell
-# scriptblock form -- works in any context, including wrapped in another powershell -Command
+# Scriptblock form -- robust against deliberately-wrapped invocations
 & ([scriptblock]::Create((iwr -useb 'https://raw.githubusercontent.com/johncliechty/claude-code-bridge/main/bootstrap.ps1').Content))
 ```
 
 ```powershell
-# Download-then-run -- easiest to debug if something's wrong, easiest to pass overrides
+# Download-then-run -- easiest to debug if needed; easiest to pass env-var overrides
 $tmp = "$env:TEMP\ccb-bootstrap.ps1"
 iwr -useb 'https://raw.githubusercontent.com/johncliechty/claude-code-bridge/main/bootstrap.ps1' -OutFile $tmp
 powershell -ExecutionPolicy Bypass -File $tmp
 ```
 
-`bootstrap.ps1` wraps its body in `& { ... }`, which means it parses cleanly under all three invocation styles (`iex`, `[scriptblock]::Create`, and `-File`). Optional overrides (clone path, repo URL, skip-venv, non-interactive) are set via env vars before running — `$env:CCB_INSTALL_PATH`, `$env:CCB_REPO_URL`, `$env:CCB_SKIP_VENV`, `$env:CCB_NON_INTERACTIVE`. The script's header comment documents these.
-
-**From PowerShell (two commands):**
-
 ```powershell
+# Git-clone-and-run -- if you want the working copy checked out somewhere specific anyway
 git clone https://github.com/johncliechty/claude-code-bridge C:\dev\claude-code-bridge
 powershell -NoProfile -ExecutionPolicy Bypass -File C:\dev\claude-code-bridge\bootstrap.ps1
 ```
 
-`bootstrap.ps1` is idempotent and handles Python detection / install, git detection / install, repo clone-or-pull, venv setup, and the Scheduled Task registration. It runs `install-watcher.ps1` at the end which self-tests the daemon round-trip.
+[`Install-Claude-Code-Bridge.bat`](https://raw.githubusercontent.com/johncliechty/claude-code-bridge/main/Install-Claude-Code-Bridge.bat) (right-click → "Save link as…", then double-click) is also still on the repo, but it internally uses the wrapped-`-Command` pattern that Smart App Control blocks on Win11 22H2+. It works on older Windows builds, on machines where SAC is off, and on machines without strict AppLocker policy — but it's not the recommended student-facing path. See [`KNOWN-ISSUES.md`](./KNOWN-ISSUES.md) §7 for the exact SAC failure mode and why.
+
+`bootstrap.ps1` wraps its body in `& { ... }`, which means it parses cleanly under `iex`, `[scriptblock]::Create`, and `-File` invocations alike. Optional overrides (clone path, repo URL, skip-venv, non-interactive) are set via env vars before running — `$env:CCB_INSTALL_PATH`, `$env:CCB_REPO_URL`, `$env:CCB_SKIP_VENV`, `$env:CCB_NON_INTERACTIVE`. The script's header comment documents these.
 
 ## How it works
 

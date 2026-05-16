@@ -72,11 +72,47 @@ Then invoke the script via `mcp__Claude_Code_Bridge__run_command` with `powershe
 
 **Status:** unresolved. Probably solvable by writing a `cmd /c` invocation with explicit quoting (sidestepping both PowerShell's Start-Process arg-quoting and gh's apparent cwd-inheritance problem), but that hits issue #3.
 
+## 7. Wrapped `powershell -ExecutionPolicy Bypass -Command "iex (iwr ...).Content"` blocked by Win11 Smart App Control (high — student-facing)
+
+**Symptom.** A user on Windows 11 22H2+ pastes the install one-liner in the form
+
+```
+powershell -ExecutionPolicy Bypass -Command "iex (iwr -useb 'https://raw.githubusercontent.com/johncliechty/claude-code-bridge/main/bootstrap.ps1').Content"
+```
+
+into an existing PowerShell session and gets:
+
+```
+Program 'powershell.exe' failed to run: Access is denied
+At line:1 char:1
++ C:\WINDOWS\System32\WindowsPowerShell\v1.0\powershell.exe -ExecutionP ...
+    + CategoryInfo          : ResourceUnavailable: (:) [], ApplicationFailedException
+    + FullyQualifiedErrorId : NativeCommandFailed
+```
+
+The error fires at `CreateProcess` time — *before* `bootstrap.ps1` is even fetched. No `iwr` runs; no `iex` parses. The bridge's content never enters the picture.
+
+**Root cause (working hypothesis).** Microsoft Defender Smart App Control (default-on for new Win11 22H2+ installs) inspects child-process spawns from PowerShell and refuses unsigned `powershell.exe -ExecutionPolicy Bypass -Command "iex ..."` patterns at `CreateProcess` time — that command line is a textbook SAC-flagged "download-and-execute remote script" pattern. The same pattern also trips some corporate AppLocker policies and some third-party EDR products with PowerShell self-elevation rules.
+
+`Install-Claude-Code-Bridge.bat` uses the same wrapped pattern internally (`powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "..."` against the fetched script), so it fails on the same machines with the same error.
+
+**Workaround.** Use the **bare-iex form**, run inside the user's existing PowerShell session, with no `powershell -Command` wrapper at all:
+
+```
+iex (iwr -useb 'https://raw.githubusercontent.com/johncliechty/claude-code-bridge/main/bootstrap.ps1').Content
+```
+
+This runs entirely inside the parent PowerShell — no child process spawn, no SAC gate. Combined with the iex-tolerance fix in `bootstrap.ps1` (commit `6a68959`, which wraps the script body in `& { ... }`), the bare form parses cleanly. Verified working on a Win11 machine with SAC active where the wrapped form had just failed.
+
+**Student-facing implication.** The Anchor curriculum's STYLE.md was updated to instruct the agent to *only* give students the bare-iex line. The wrapped form and the `.bat` are kept on the repo for non-SAC machines (older Win10/11, corporate-imaged boxes with SAC off, etc.) but are *not* the recommended path for first-time students.
+
+**Status:** worked-around at the documentation + curriculum layer. Real fix would require either a code-signed installer (out of scope for this stage) or rewriting `bootstrap.ps1` to not look like SAC's blocked pattern from the outside (but the iex form sidesteps this entirely so it's not pressing).
+
 ---
 
 ## Summary of practical impact
 
-For routine bridge usage — `echo`, file operations, `Test-Path`, `Get-ChildItem`, `Remove-Item`, simple cmdlets, `Set-Location`, registry reads, etc. — the bridge is solid (~170-200ms round-trips, consistent across days). Issues #1-#3 bite for external binary invocation and file-path-with-spaces cases. Issue #4 is cosmetic. Issue #5 is a Cowork mount concern. Issue #6 specifically blocks the `gh repo create` flow.
+For routine bridge usage — `echo`, file operations, `Test-Path`, `Get-ChildItem`, `Remove-Item`, simple cmdlets, `Set-Location`, registry reads, etc. — the bridge is solid (~170-200ms round-trips, consistent across days). Issues #1-#3 bite for external binary invocation and file-path-with-spaces cases. Issue #4 is cosmetic. Issue #5 is a Cowork mount concern. Issue #6 specifically blocks the `gh repo create` flow. Issue #7 is the student-facing install gotcha; documented workaround is the bare-iex form.
 
 For git workflows on the host: write a `.ps1` that uses `Start-Process` with `RedirectStandardOutput`, log to `$env:TEMP`, and the work lands. For `gh` workflows specifically: do it from a real terminal until issue #6 is solved.
 
