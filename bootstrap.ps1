@@ -283,16 +283,34 @@ if (-not $SkipVenv) {
         OK "venv already present at $venvPath"
     }
 
-    # Upgrade pip silently
-    Write-Host "  Upgrading pip..." -ForegroundColor Gray
-    & $venvPython -m pip install --upgrade pip --quiet 2>&1 | Out-Null
+    # Upgrade pip silently -- non-fatal. PS 5.1 + $ErrorActionPreference='Stop'
+    # promotes ANY native-exe stderr write to a NativeCommandError, even pip
+    # retry-WARNINGs from transient PyPI connection resets. We lower EAP and
+    # swallow stderr just for this call so a flaky network during pip upgrade
+    # doesn't sink the whole install.
+    Write-Host "  Upgrading pip (non-fatal if PyPI is flaky)..." -ForegroundColor Gray
+    $prevEAP = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    & $venvPython -m pip install --upgrade pip --quiet --disable-pip-version-check --retries 5 --timeout 60 2>$null
+    $pipUpgradeRC = $LASTEXITCODE
+    $ErrorActionPreference = $prevEAP
+    if ($pipUpgradeRC -ne 0) {
+        Warn "pip upgrade returned exit $pipUpgradeRC (likely transient PyPI/network); continuing with the pip that ships with the venv."
+    }
 
     Write-Host "  Installing the bridge package (editable mode)..." -ForegroundColor Cyan
     Push-Location $InstallPath
     try {
-        & $venvPython -m pip install -e . --quiet
-        if ($LASTEXITCODE -ne 0) {
-            Fail "pip install -e . failed."
+        # Same EAP-relaxation here so a transient WARNING from urllib3-retry
+        # during the install doesn't blow up the script; we still hard-fail
+        # if pip returns non-zero, which is the real signal of trouble.
+        $prevEAP = $ErrorActionPreference
+        $ErrorActionPreference = 'Continue'
+        & $venvPython -m pip install -e . --quiet --disable-pip-version-check --retries 5 --timeout 60 2>$null
+        $pipInstallRC = $LASTEXITCODE
+        $ErrorActionPreference = $prevEAP
+        if ($pipInstallRC -ne 0) {
+            Fail "pip install -e . failed (exit $pipInstallRC). Most often a transient PyPI / network issue; re-run the installer once."
             exit 1
         }
     } finally {

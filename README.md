@@ -14,10 +14,12 @@ The calling agent sends a shell command string over MCP; the bridge runs it via 
 2. Paste this single line and press Enter:
 
 ```
-iex (iwr -useb 'https://raw.githubusercontent.com/johncliechty/claude-code-bridge/main/bootstrap.ps1').Content
+[Net.ServicePointManager]::SecurityProtocol = 'Tls12'; iex (iwr -useb 'https://raw.githubusercontent.com/johncliechty/claude-code-bridge/main/bootstrap.ps1').Content
 ```
 
 3. Wait until you see `BOOTSTRAP COMPLETE` (1–3 minutes — installs Python via winget if missing, installs git if missing, clones the repo, sets up the venv, registers the Scheduled Task, and self-tests the IPC round-trip).
+
+**Why the `[Net.ServicePointManager]::SecurityProtocol = 'Tls12';` prefix?** Windows PowerShell 5.1 (the default `powershell.exe` on Win11) defaults to TLS 1.0/1.1; GitHub stopped accepting anything below TLS 1.2 in 2018. Without the prefix, `iwr` against `raw.githubusercontent.com` fails on a fresh PS 5.1 session with `The underlying connection was closed: An unexpected error occurred on a send.` The prefix is a one-time per-session protocol toggle; it's a no-op in PS 7+. See [`KNOWN-ISSUES.md`](./KNOWN-ISSUES.md) §8.
 
 **No `powershell -Command` wrapper, no `-ExecutionPolicy Bypass` flag, no `.bat` download.** The wrapped forms (listed under "Alternative install paths" below) trip Smart App Control on Win11 22H2+ with the unhelpful error `Program 'powershell.exe' failed to run: Access is denied`. The bare-iex form runs *inside* your existing PowerShell session — no child process spawn, no SAC gate — and the iex-tolerant `bootstrap.ps1` (which wraps its body in `& { ... }`) parses cleanly in that context.
 

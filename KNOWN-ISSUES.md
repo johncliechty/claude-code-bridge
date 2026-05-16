@@ -96,23 +96,56 @@ The error fires at `CreateProcess` time — *before* `bootstrap.ps1` is even fet
 
 **`Install-Claude-Code-Bridge.bat` has been removed from the repo** (commit forthcoming with this KNOWN-ISSUES.md update). It used the same wrapped pattern internally (`powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "..."` against the fetched script) and failed on the same SAC-enabled Win11 22H2+ machines with the same `Access is denied` error. Keeping it next to the working bare-iex path was net harmful — users were finding the `.bat` first (it sounded simpler), running it, hitting the silent failure, and not knowing to look at the README. Removing the broken alternative collapses the choice to one working path.
 
-**Workaround.** Use the **bare-iex form**, run inside the user's existing PowerShell session, with no `powershell -Command` wrapper at all:
+**Workaround.** Use the **bare-iex form** (with the PS 5.1 TLS prefix from issue #8 below), run inside the user's existing PowerShell session, with no `powershell -Command` wrapper at all:
+
+```
+[Net.ServicePointManager]::SecurityProtocol = 'Tls12'; iex (iwr -useb 'https://raw.githubusercontent.com/johncliechty/claude-code-bridge/main/bootstrap.ps1').Content
+```
+
+This runs entirely inside the parent PowerShell — no child process spawn, no SAC gate. Combined with the iex-tolerance fix in `bootstrap.ps1` (commit `6a68959`, which wraps the script body in `& { ... }`), the bare form parses cleanly. Verified working on a Win11 machine with SAC active where the wrapped form had just failed.
+
+**Student-facing implication.** The Anchor curriculum's M0 setup rubric instructs the agent to *only* give students the bare-iex line (with TLS prefix). The wrapped form is not shipped anywhere; `Install-Claude-Code-Bridge.bat` was removed from the repo for the same SAC reason (it used the wrapped pattern internally).
+
+**Status:** worked-around at the documentation + curriculum layer. Real fix would require either a code-signed installer (out of scope for this stage) or rewriting `bootstrap.ps1` to not look like SAC's blocked pattern from the outside (but the iex form sidesteps this entirely so it's not pressing).
+
+## 8. Windows PowerShell 5.1 defaults to TLS 1.0/1.1; GitHub requires TLS 1.2+ (high — student-facing)
+
+**Symptom.** A user on Windows 11 with stock PS 5.1 (the default `powershell.exe`, *not* PS 7's `pwsh.exe`) opens a fresh Terminal and pastes:
 
 ```
 iex (iwr -useb 'https://raw.githubusercontent.com/johncliechty/claude-code-bridge/main/bootstrap.ps1').Content
 ```
 
-This runs entirely inside the parent PowerShell — no child process spawn, no SAC gate. Combined with the iex-tolerance fix in `bootstrap.ps1` (commit `6a68959`, which wraps the script body in `& { ... }`), the bare form parses cleanly. Verified working on a Win11 machine with SAC active where the wrapped form had just failed.
+PowerShell fails with:
 
-**Student-facing implication.** The Anchor curriculum's STYLE.md was updated to instruct the agent to *only* give students the bare-iex line. The wrapped form and the `.bat` are kept on the repo for non-SAC machines (older Win10/11, corporate-imaged boxes with SAC off, etc.) but are *not* the recommended path for first-time students.
+```
+iwr : The underlying connection was closed: An unexpected error occurred on a send.
+At line:1 char:6
++ iex (iwr -useb 'https://raw.githubusercontent.com/johncliechty/claude ...
++      ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : InvalidOperation: (System.Net.HttpWebRequest:HttpWebRequest) [Invoke-WebRequest], WebException
+    + FullyQualifiedErrorId : WebCmdletWebResponseException,Microsoft.PowerShell.Commands.InvokeWebRequestCommand
+```
 
-**Status:** worked-around at the documentation + curriculum layer. Real fix would require either a code-signed installer (out of scope for this stage) or rewriting `bootstrap.ps1` to not look like SAC's blocked pattern from the outside (but the iex form sidesteps this entirely so it's not pressing).
+**Root cause.** `Invoke-WebRequest` in PS 5.1 uses the .NET `ServicePointManager.SecurityProtocol` default — which on stock Windows PowerShell is `Ssl3, Tls` (TLS 1.0). GitHub's `raw.githubusercontent.com` (and all of `*.github.com` since 2018) requires TLS 1.2 or higher and rejects the handshake. The connection is dropped before any HTTP semantics happen, hence "underlying connection was closed". Sometimes a previous script in the same PS session has already raised `SecurityProtocol` to include TLS 1.2, which is why this can succeed on one PS window and fail on another on the same machine.
+
+**Workaround.** Prepend a TLS 1.2 toggle to the install line:
+
+```
+[Net.ServicePointManager]::SecurityProtocol = 'Tls12'; iex (iwr -useb 'https://raw.githubusercontent.com/johncliechty/claude-code-bridge/main/bootstrap.ps1').Content
+```
+
+The `'Tls12'` string is coerced to `[Net.SecurityProtocolType]::Tls12` at runtime. The setting is session-scoped (no persistent registry change, no admin required). It is a no-op in PS 7+, which already defaults to TLS 1.2+. The README and the Anchor curriculum's M0 setup rubric both lead with the TLS-prefixed form so students never see the raw failure.
+
+**Why not fix it in `bootstrap.ps1`?** Because `bootstrap.ps1` is what `iwr` is trying to fetch — TLS 1.2 has to be set *before* the fetch. There's no way around the user-typed line carrying the prefix (short of distributing an EXE that uses its own TLS stack, like `curl.exe`).
+
+**Status:** documented + worked into the curriculum and README. Persistent fix (a registry write to enable `SchUseStrongCrypto` for .NET Framework, making TLS 1.2 the default for all .NET HTTP) requires admin and is out of scope; the per-session prefix is the right call for student onboarding.
 
 ---
 
 ## Summary of practical impact
 
-For routine bridge usage — `echo`, file operations, `Test-Path`, `Get-ChildItem`, `Remove-Item`, simple cmdlets, `Set-Location`, registry reads, etc. — the bridge is solid (~170-200ms round-trips, consistent across days). Issues #1-#3 bite for external binary invocation and file-path-with-spaces cases. Issue #4 is cosmetic. Issue #5 is a Cowork mount concern. Issue #6 specifically blocks the `gh repo create` flow. Issue #7 is the student-facing install gotcha; documented workaround is the bare-iex form.
+For routine bridge usage — `echo`, file operations, `Test-Path`, `Get-ChildItem`, `Remove-Item`, simple cmdlets, `Set-Location`, registry reads, etc. — the bridge is solid (~170-200ms round-trips, consistent across days). Issues #1-#3 bite for external binary invocation and file-path-with-spaces cases. Issue #4 is cosmetic. Issue #5 is a Cowork mount concern. Issue #6 specifically blocks the `gh repo create` flow. Issues #7 (SAC) and #8 (PS 5.1 TLS) are student-facing install gotchas; both have documented workarounds baked into the README and M0 install line.
 
 For git workflows on the host: write a `.ps1` that uses `Start-Process` with `RedirectStandardOutput`, log to `$env:TEMP`, and the work lands. For `gh` workflows specifically: do it from a real terminal until issue #6 is solved.
 
