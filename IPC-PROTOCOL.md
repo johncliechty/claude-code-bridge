@@ -2,6 +2,12 @@
 
 **Status:** v0.3.0, fully tested in Cowork sandbox (7 test categories pass), shipped 2026-05-14.
 
+## Prerequisite for sandboxed callers — the mount step
+
+**Before any inbox write can succeed, the bridge folder must be in the caller's mount set.** Installing the bridge (running `bootstrap.ps1` on Windows or the equivalent shell installer on macOS/Linux) registers the host-side daemon and creates `<bridge_root>/ipc/inbox/` and `<bridge_root>/ipc/outbox/` on the host's filesystem — but those folders are *not* automatically reachable from inside a sandboxed agent runtime (Cowork's Linux sandbox is the canonical case). The sandbox can only see folders the user has selected when starting the session OR folders the agent has requested via `mcp__cowork__request_cowork_directory` and the user has approved. Without that mount, the agent's attempt to write a request JSON into the inbox returns "file not found" or "permission denied" — the bridge appears installed but is silently non-load-bearing.
+
+**The fix is one MCP call.** After the install paste completes, the calling agent must call `mcp__cowork__request_cowork_directory(path=<bridge_root>)` (where `<bridge_root>` is `C:\dev\claude-code-bridge` on Windows or `~/dev/claude-code-bridge` on macOS/Linux). The user gets a one-click approval prompt; on approval, the inbox/outbox folders become readable and writable from the agent's session and every later host operation runs silently through this protocol. **Install + mount, not install alone.** Curricula that use this bridge (the Anchor curriculum, for one) should treat both as M0-blocking conditions before declaring the bridge operational.
+
 ## What this is
 
 A way for a sandboxed Cowork session to run shell commands on the user's host machine without depending on Cowork's MCP/plugin registry (which doesn't currently accept user-built tools). Works by writing JSON files into `inbox/` and reading them back from `outbox/`.
