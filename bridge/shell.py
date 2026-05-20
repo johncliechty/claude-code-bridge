@@ -25,6 +25,64 @@ DEFAULT_TIMEOUT_SECONDS = 60.0
 SUPPORTED_SHELLS = ("powershell", "pwsh", "cmd", "bash")
 
 
+def _augment_host_path() -> None:
+    """Ensure common host tool directories are on PATH for spawned commands.
+
+    The daemon is usually launched by a Windows Scheduled Task whose process
+    environment has a heavily stripped PATH -- empirically so stripped that even
+    git / gh / node installed in standard locations are not resolvable, and a
+    registry PATH read does not recover them. So we mirror bootstrap.ps1's
+    known-location resolver: probe well-known install dirs and prepend any that
+    exist to os.environ['PATH']. Because run_command spawns children that inherit
+    this process's environment, every command then sees git/gh/node. This is
+    general (standard install locations on any Windows box), so it ships with the
+    daemon and needs zero per-machine configuration. No-op on non-Windows.
+    """
+    if sys.platform != "win32":
+        return
+    import glob
+
+    pf = os.environ.get("ProgramFiles", r"C:\Program Files")
+    pf86 = os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)")
+    local = os.environ.get("LOCALAPPDATA", os.path.expanduser(r"~\AppData\Local"))
+    windir = os.environ.get("SystemRoot", r"C:\Windows")
+
+    candidates = [
+        # git (machine + user installs)
+        rf"{pf}\Git\cmd", rf"{pf}\Git\bin", rf"{pf86}\Git\cmd",
+        rf"{local}\Programs\Git\cmd",
+        # GitHub CLI
+        rf"{pf}\GitHub CLI", rf"{local}\GitHubCLI\bin",
+        # Node.js
+        rf"{pf}\nodejs", rf"{local}\Programs\nodejs",
+        # core Windows dirs (so even whoami/where resolve under a stripped PATH)
+        rf"{windir}\System32", windir,
+        rf"{windir}\System32\WindowsPowerShell\v1.0",
+        rf"{local}\Microsoft\WindowsApps",
+    ]
+    # Python install + Scripts dirs (for pip-installed CLIs)
+    for base in (rf"{local}\Programs\Python", pf, r"C:"):
+        candidates += glob.glob(rf"{base}\Python3*")
+        candidates += glob.glob(rf"{base}\Python3*\Scripts")
+
+    # Ensure PATHEXT lets bare command names resolve to executables. The stripped
+    # Scheduled-Task environment can ship a near-empty PATHEXT (observed: just
+    # ".CPL"), so `git` never resolves to `git.exe` even when its dir is on PATH.
+    if ".EXE" not in os.environ.get("PATHEXT", "").upper():
+        os.environ["PATHEXT"] = ".COM;.EXE;.BAT;.CMD;.VBS;.VBE;.JS;.JSE;.WSF;.WSH;.MSC"
+
+    existing = os.environ.get("PATH", "")
+    have = {p.lower() for p in existing.split(os.pathsep) if p}
+    prepend = [c for c in candidates if c and os.path.isdir(c) and c.lower() not in have]
+    if prepend:
+        os.environ["PATH"] = os.pathsep.join(prepend) + os.pathsep + existing
+
+
+# Run once at import so both entry points (bridge.watcher and bridge.mcp_server,
+# which both `from bridge.shell import ...`) get a usable PATH before any command runs.
+_augment_host_path()
+
+
 def _default_shell() -> str:
     """Pick a sensible default shell for the current OS."""
     if sys.platform == "win32":
