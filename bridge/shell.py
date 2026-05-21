@@ -48,9 +48,13 @@ def _augment_host_path() -> None:
     windir = os.environ.get("SystemRoot", r"C:\Windows")
 
     candidates = [
-        # git (machine + user installs)
-        rf"{pf}\Git\cmd", rf"{pf}\Git\bin", rf"{pf86}\Git\cmd",
-        rf"{local}\Programs\Git\cmd",
+        # git (machine + user installs). Include mingw64\bin and usr\bin: git-lfs
+        # and git's bundled unix helpers live there, and the system gitconfig's
+        # required LFS filter (filter.lfs.process = git-lfs filter-process) HANGS
+        # git on every repo operation if git-lfs is not resolvable on PATH.
+        rf"{pf}\Git\cmd", rf"{pf}\Git\bin", rf"{pf}\Git\mingw64\bin", rf"{pf}\Git\usr\bin",
+        rf"{pf86}\Git\cmd", rf"{pf86}\Git\mingw64\bin",
+        rf"{local}\Programs\Git\cmd", rf"{local}\Programs\Git\mingw64\bin",
         # GitHub CLI
         rf"{pf}\GitHub CLI", rf"{local}\GitHubCLI\bin",
         # Node.js
