@@ -82,9 +82,53 @@ def _augment_host_path() -> None:
         os.environ["PATH"] = os.pathsep.join(prepend) + os.pathsep + existing
 
 
+def _harden_git_env() -> None:
+    """Make git operations non-hanging in a headless daemon session.
+
+    The Windows system gitconfig commonly enables a *required* Git LFS filter
+    (``filter.lfs.process = git-lfs filter-process``) that deadlocks every
+    add/commit/checkout in a headless service session, and an auto-``gc`` after a
+    commit can leave git not exiting. The daemon never needs LFS for its use case
+    (running a curriculum's git), so on Windows we disable the *system* gitconfig
+    entirely via ``GIT_CONFIG_NOSYSTEM`` -- which drops the LFS filter -- while
+    keeping the user's *global* config (identity + credential helper), so pushes
+    still authenticate. Because NOSYSTEM also drops the system ``http.sslCAInfo``,
+    we re-supply ``http.sslBackend=schannel`` so HTTPS uses the Windows cert store
+    with no CA file. We also turn off auto-gc/maintenance/fsmonitor and any
+    interactive credential/terminal prompt, so a git command can never block on a
+    UI that has no desktop. (NB: ``GIT_CONFIG_VALUE_*`` must be non-empty -- git
+    rejects an empty value -- which is why LFS is dropped via NOSYSTEM rather than
+    by setting ``filter.lfs.process`` to empty.) Tradeoff: a repo that genuinely
+    uses Git LFS won't have pointers expanded through the bridge -- acceptable,
+    since the bridge's job here is curriculum git.
+    """
+    os.environ.setdefault("GIT_OPTIONAL_LOCKS", "0")
+    os.environ.setdefault("GIT_TERMINAL_PROMPT", "0")
+    os.environ.setdefault("GCM_INTERACTIVE", "never")
+    overrides = [
+        ("gc.auto", "0"),
+        ("gc.autoDetach", "false"),
+        ("maintenance.auto", "false"),
+        ("core.fsmonitor", "false"),
+    ]
+    if sys.platform == "win32":
+        os.environ.setdefault("GIT_CONFIG_NOSYSTEM", "1")
+        overrides.append(("http.sslBackend", "schannel"))
+    try:
+        base = int(os.environ.get("GIT_CONFIG_COUNT", "0"))
+    except ValueError:
+        base = 0
+    for i, (k, v) in enumerate(overrides):
+        os.environ[f"GIT_CONFIG_KEY_{base + i}"] = k
+        os.environ[f"GIT_CONFIG_VALUE_{base + i}"] = v
+    os.environ["GIT_CONFIG_COUNT"] = str(base + len(overrides))
+
+
 # Run once at import so both entry points (bridge.watcher and bridge.mcp_server,
-# which both `from bridge.shell import ...`) get a usable PATH before any command runs.
+# which both `from bridge.shell import ...`) get a usable PATH + non-hanging git
+# environment before any command runs.
 _augment_host_path()
+_harden_git_env()
 
 
 def _default_shell() -> str:
